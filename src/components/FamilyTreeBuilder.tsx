@@ -1,11 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Checkbox } from '@/components/ui/checkbox';
 import Icon from '@/components/ui/icon';
 import { toast } from 'sonner';
 
@@ -13,9 +13,10 @@ interface FamilyMember {
   id: string;
   name: string;
   birthDate: string;
+  deathDate?: string;
   photo?: string;
   relation: string;
-  parentId?: string;
+  parentIds?: string[];
 }
 
 export default function FamilyTreeBuilder() {
@@ -25,12 +26,14 @@ export default function FamilyTreeBuilder() {
       name: 'Вы',
       birthDate: '1990-01-01',
       relation: 'Я',
+      parentIds: [],
     },
   ]);
   const [selectedMember, setSelectedMember] = useState<FamilyMember | null>(null);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [newMember, setNewMember] = useState<Partial<FamilyMember>>({});
   const [history, setHistory] = useState<FamilyMember[][]>([members]);
+  const [isAlive, setIsAlive] = useState(true);
 
   const addMember = () => {
     if (!newMember.name || !newMember.birthDate || !newMember.relation) {
@@ -38,20 +41,66 @@ export default function FamilyTreeBuilder() {
       return;
     }
 
+    let parentIds: string[] = [];
+    if (newMember.relation === 'child' && selectedMember) {
+      parentIds = [selectedMember.id];
+    } else if (newMember.relation === 'sibling') {
+      const currentUser = members.find((m) => m.relation === 'Я');
+      if (currentUser && currentUser.parentIds) {
+        parentIds = currentUser.parentIds;
+      }
+    } else if (newMember.relation === 'parent') {
+      const currentUser = members.find((m) => m.relation === 'Я');
+      if (currentUser) {
+        const updatedUser = {
+          ...currentUser,
+          parentIds: [...(currentUser.parentIds || []), Date.now().toString()],
+        };
+        const updatedMembers = members.map((m) => (m.id === currentUser.id ? updatedUser : m));
+        setMembers(updatedMembers);
+      }
+    }
+
     const member: FamilyMember = {
-      id: Date.now().toString(),
+      id: newMember.relation === 'parent' ? (members.find((m) => m.relation === 'Я')?.parentIds?.slice(-1)[0] || Date.now().toString()) : Date.now().toString(),
       name: newMember.name,
       birthDate: newMember.birthDate,
+      deathDate: isAlive ? undefined : newMember.deathDate,
       photo: newMember.photo,
       relation: newMember.relation,
-      parentId: selectedMember?.id,
+      parentIds: parentIds,
     };
+
+    if (newMember.relation === 'parent') {
+      member.id = Date.now().toString();
+      const currentUser = members.find((m) => m.relation === 'Я');
+      if (currentUser) {
+        const updatedMembers = members.map((m) => {
+          if (m.id === currentUser.id) {
+            return {
+              ...m,
+              parentIds: [...(m.parentIds || []), member.id],
+            };
+          }
+          return m;
+        });
+        const finalMembers = [...updatedMembers, member];
+        setMembers(finalMembers);
+        setHistory([...history, finalMembers]);
+        setIsAddDialogOpen(false);
+        setNewMember({});
+        setIsAlive(true);
+        toast.success(`${member.name} добавлен в дерево`);
+        return;
+      }
+    }
 
     const updatedMembers = [...members, member];
     setMembers(updatedMembers);
     setHistory([...history, updatedMembers]);
     setIsAddDialogOpen(false);
     setNewMember({});
+    setIsAlive(true);
     toast.success(`${member.name} добавлен в дерево`);
   };
 
@@ -107,10 +156,15 @@ export default function FamilyTreeBuilder() {
                 { label: 'Дяди/Тети', value: 'uncle_aunt', icon: 'Users2' },
                 { label: 'Бабушки/Дедушки', value: 'grandparent', icon: 'User' },
               ].map((rel) => (
-                <Dialog key={rel.value} open={isAddDialogOpen && newMember.relation === rel.value} onOpenChange={(open) => {
-                  setIsAddDialogOpen(open);
-                  if (open) setNewMember({ relation: rel.value });
-                }}>
+                <Dialog
+                  key={rel.value}
+                  open={isAddDialogOpen && newMember.relation === rel.value}
+                  onOpenChange={(open) => {
+                    setIsAddDialogOpen(open);
+                    if (open) setNewMember({ relation: rel.value });
+                    if (!open) setIsAlive(true);
+                  }}
+                >
                   <DialogTrigger asChild>
                     <Button
                       variant="outline"
@@ -118,6 +172,7 @@ export default function FamilyTreeBuilder() {
                       onClick={() => {
                         setNewMember({ relation: rel.value });
                         setIsAddDialogOpen(true);
+                        setIsAlive(true);
                       }}
                     >
                       <Icon name={rel.icon as any} size={18} className="mr-2" />
@@ -149,6 +204,28 @@ export default function FamilyTreeBuilder() {
                           className="rounded-xl"
                         />
                       </div>
+                      <div className="flex items-center space-x-2">
+                        <Checkbox
+                          id="isAlive"
+                          checked={isAlive}
+                          onCheckedChange={(checked) => setIsAlive(checked as boolean)}
+                        />
+                        <Label htmlFor="isAlive" className="cursor-pointer">
+                          Человек жив
+                        </Label>
+                      </div>
+                      {!isAlive && (
+                        <div>
+                          <Label htmlFor="deathDate">Дата смерти</Label>
+                          <Input
+                            id="deathDate"
+                            type="date"
+                            value={newMember.deathDate || ''}
+                            onChange={(e) => setNewMember({ ...newMember, deathDate: e.target.value })}
+                            className="rounded-xl"
+                          />
+                        </div>
+                      )}
                       <div>
                         <Label htmlFor="photo">Фотография (URL)</Label>
                         <Input
@@ -184,8 +261,8 @@ export default function FamilyTreeBuilder() {
                 </span>
               </div>
 
-              <div className="space-y-8">
-                {['grandparent', 'parent', 'Я', 'sibling', 'uncle_aunt', 'child'].map((level) => {
+              <div className="space-y-12 relative">
+                {['grandparent', 'parent', 'Я', 'sibling', 'uncle_aunt', 'child'].map((level, levelIndex, array) => {
                   const levelMembers = members.filter(
                     (m) => m.relation === level || (level === 'Я' && m.relation === 'Я')
                   );
@@ -193,54 +270,86 @@ export default function FamilyTreeBuilder() {
                   if (levelMembers.length === 0) return null;
 
                   return (
-                    <div key={level}>
-                      <div className="text-sm font-medium text-gray-500 mb-3 uppercase tracking-wide">
-                        {level === 'grandparent' && 'Бабушки и Дедушки'}
-                        {level === 'parent' && 'Родители'}
-                        {level === 'Я' && 'Вы'}
-                        {level === 'sibling' && 'Братья и Сестры'}
-                        {level === 'uncle_aunt' && 'Дяди и Тети'}
-                        {level === 'child' && 'Дети'}
+                    <div key={level} className="relative">
+                      <div className="text-sm font-medium text-gray-500 mb-3 uppercase tracking-wide flex items-center">
+                        <div className="flex-1">
+                          {level === 'grandparent' && 'Бабушки и Дедушки'}
+                          {level === 'parent' && 'Родители'}
+                          {level === 'Я' && 'Вы'}
+                          {level === 'sibling' && 'Братья и Сестры'}
+                          {level === 'uncle_aunt' && 'Дяди и Тети'}
+                          {level === 'child' && 'Дети'}
+                        </div>
+                        {levelIndex > 0 && (
+                          <div className="h-8 w-0.5 bg-gradient-to-b from-primary/30 to-transparent absolute -top-8 left-1/2 transform -translate-x-1/2" />
+                        )}
                       </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {levelMembers.map((member) => (
-                          <Card
-                            key={member.id}
-                            className="cursor-pointer hover:shadow-lg transition-all duration-300 hover:-translate-y-1 rounded-xl border-2 overflow-hidden"
-                            onClick={() => setSelectedMember(member)}
-                          >
-                            <CardContent className="p-4">
-                              <div className="flex items-start space-x-3">
-                                <Avatar className="w-16 h-16 rounded-xl border-2 border-primary/20">
-                                  <AvatarImage src={member.photo} />
-                                  <AvatarFallback className="bg-gradient-to-br from-primary to-secondary text-white rounded-xl text-lg font-bold">
-                                    {member.name.split(' ').map((n) => n[0]).join('')}
-                                  </AvatarFallback>
-                                </Avatar>
-                                <div className="flex-1 min-w-0">
-                                  <h4 className="font-bold text-lg truncate">{member.name}</h4>
-                                  <p className="text-sm text-gray-500">
-                                    {new Date(member.birthDate).toLocaleDateString('ru-RU', {
-                                      year: 'numeric',
-                                      month: 'long',
-                                      day: 'numeric',
-                                    })}
-                                  </p>
-                                  <div className="mt-2 flex items-center">
-                                    <span className="text-xs px-2 py-1 bg-primary/10 text-primary rounded-lg font-medium">
-                                      {member.relation === 'parent' && 'Родитель'}
-                                      {member.relation === 'child' && 'Ребенок'}
-                                      {member.relation === 'sibling' && 'Брат/Сестра'}
-                                      {member.relation === 'uncle_aunt' && 'Дядя/Тетя'}
-                                      {member.relation === 'grandparent' && 'Бабушка/Дедушка'}
-                                      {member.relation === 'Я' && 'Вы'}
-                                    </span>
-                                  </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 relative">
+                        {levelMembers.map((member, memberIndex) => {
+                          const hasParents = member.parentIds && member.parentIds.length > 0;
+                          const parents = hasParents
+                            ? members.filter((m) => member.parentIds?.includes(m.id))
+                            : [];
+
+                          return (
+                            <div key={member.id} className="relative">
+                              {parents.length > 0 && (
+                                <div className="absolute -top-8 left-1/2 transform -translate-x-1/2 flex items-center">
+                                  <div className="h-8 w-0.5 bg-gradient-to-b from-primary/40 to-primary/20" />
+                                  <Icon
+                                    name="ArrowDown"
+                                    size={16}
+                                    className="absolute -bottom-2 left-1/2 transform -translate-x-1/2 text-primary/40"
+                                  />
                                 </div>
-                              </div>
-                            </CardContent>
-                          </Card>
-                        ))}
+                              )}
+                              <Card
+                                className="cursor-pointer hover:shadow-xl transition-all duration-300 hover:-translate-y-1 rounded-xl border-2 overflow-hidden bg-white relative"
+                                onClick={() => setSelectedMember(member)}
+                              >
+                                <CardContent className="p-4">
+                                  <div className="flex items-start space-x-3">
+                                    <Avatar className="w-16 h-16 rounded-xl border-2 border-primary/20">
+                                      <AvatarImage src={member.photo} />
+                                      <AvatarFallback className="bg-gradient-to-br from-primary to-secondary text-white rounded-xl text-lg font-bold">
+                                        {member.name
+                                          .split(' ')
+                                          .map((n) => n[0])
+                                          .join('')}
+                                      </AvatarFallback>
+                                    </Avatar>
+                                    <div className="flex-1 min-w-0">
+                                      <h4 className="font-bold text-lg truncate">{member.name}</h4>
+                                      <p className="text-sm text-gray-500">
+                                        {new Date(member.birthDate).toLocaleDateString('ru-RU', {
+                                          year: 'numeric',
+                                        })}
+                                        {member.deathDate && (
+                                          <>
+                                            {' - '}
+                                            {new Date(member.deathDate).toLocaleDateString('ru-RU', {
+                                              year: 'numeric',
+                                            })}
+                                          </>
+                                        )}
+                                      </p>
+                                      <div className="mt-2 flex items-center">
+                                        <span className="text-xs px-2 py-1 bg-primary/10 text-primary rounded-lg font-medium">
+                                          {member.relation === 'parent' && 'Родитель'}
+                                          {member.relation === 'child' && 'Ребенок'}
+                                          {member.relation === 'sibling' && 'Брат/Сестра'}
+                                          {member.relation === 'uncle_aunt' && 'Дядя/Тетя'}
+                                          {member.relation === 'grandparent' && 'Бабушка/Дедушка'}
+                                          {member.relation === 'Я' && 'Вы'}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </CardContent>
+                              </Card>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   );
@@ -272,8 +381,8 @@ export default function FamilyTreeBuilder() {
             <div>
               <h3 className="font-bold mb-1">Подсказка</h3>
               <p className="text-sm text-gray-600">
-                Нажмите на карточку родственника, чтобы увидеть подробную информацию. Используйте кнопку
-                "Отменить" для возврата к предыдущим версиям. Количество членов семьи не ограничено!
+                Линии со стрелками показывают связи между поколениями. Если человек жив, дату смерти можно
+                не указывать. Нажмите на карточку родственника для просмотра деталей.
               </p>
             </div>
           </div>
