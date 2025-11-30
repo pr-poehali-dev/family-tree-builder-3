@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import Icon from '@/components/ui/icon';
 import { toast } from 'sonner';
 
@@ -14,10 +15,9 @@ interface FamilyMember {
   birthDate: string;
   deathDate?: string;
   photo?: string;
-  relation: string;
-  parentIds?: string[];
   level: number;
-  x?: number;
+  parentIds?: string[];
+  spouseId?: string;
 }
 
 export default function FamilyTreeBuilder() {
@@ -26,72 +26,30 @@ export default function FamilyTreeBuilder() {
       id: '1',
       name: 'Вы',
       birthDate: '1990-01-01',
-      relation: 'Я',
+      level: 3,
       parentIds: [],
-      level: 2,
-      x: 0,
     },
   ]);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [newMember, setNewMember] = useState<Partial<FamilyMember>>({});
+  const [selectedParent, setSelectedParent] = useState<string>('');
   const [history, setHistory] = useState<FamilyMember[][]>([members]);
   const [isAlive, setIsAlive] = useState(true);
 
   const addMember = () => {
-    if (!newMember.name || !newMember.birthDate || !newMember.relation) {
+    if (!newMember.name || !newMember.birthDate || newMember.level === undefined) {
       toast.error('Заполните все обязательные поля');
       return;
     }
 
-    let level = 2;
     let parentIds: string[] = [];
-
-    if (newMember.relation === 'grandparent') {
-      level = 0;
-    } else if (newMember.relation === 'parent') {
-      level = 1;
-      const currentUser = members.find((m) => m.relation === 'Я');
-      if (currentUser) {
-        const memberId = Date.now().toString();
-        parentIds = [];
-        const updatedMembers = members.map((m) => {
-          if (m.id === currentUser.id) {
-            return { ...m, parentIds: [...(m.parentIds || []), memberId] };
-          }
-          return m;
-        });
-        const member: FamilyMember = {
-          id: memberId,
-          name: newMember.name,
-          birthDate: newMember.birthDate,
-          deathDate: isAlive ? undefined : newMember.deathDate,
-          photo: newMember.photo,
-          relation: newMember.relation,
-          parentIds: parentIds,
-          level: level,
-        };
-        const finalMembers = [...updatedMembers, member];
-        setMembers(finalMembers);
-        setHistory([...history, finalMembers]);
-        setIsAddDialogOpen(false);
-        setNewMember({});
-        setIsAlive(true);
-        toast.success(`${member.name} добавлен в дерево`);
-        return;
-      }
-    } else if (newMember.relation === 'Я') {
-      level = 2;
-    } else if (newMember.relation === 'sibling') {
-      level = 2;
-      const currentUser = members.find((m) => m.relation === 'Я');
-      if (currentUser && currentUser.parentIds) {
-        parentIds = currentUser.parentIds;
-      }
-    } else if (newMember.relation === 'child') {
-      level = 3;
-      const currentUser = members.find((m) => m.relation === 'Я');
-      if (currentUser) {
-        parentIds = [currentUser.id];
+    
+    if (selectedParent && selectedParent !== 'none') {
+      parentIds = [selectedParent];
+      
+      const parent = members.find(m => m.id === selectedParent);
+      if (parent?.spouseId) {
+        parentIds.push(parent.spouseId);
       }
     }
 
@@ -101,9 +59,8 @@ export default function FamilyTreeBuilder() {
       birthDate: newMember.birthDate,
       deathDate: isAlive ? undefined : newMember.deathDate,
       photo: newMember.photo,
-      relation: newMember.relation,
+      level: newMember.level,
       parentIds: parentIds,
-      level: level,
     };
 
     const updatedMembers = [...members, member];
@@ -111,8 +68,36 @@ export default function FamilyTreeBuilder() {
     setHistory([...history, updatedMembers]);
     setIsAddDialogOpen(false);
     setNewMember({});
+    setSelectedParent('');
     setIsAlive(true);
     toast.success(`${member.name} добавлен в дерево`);
+  };
+
+  const addSpouse = (memberId: string) => {
+    const member = members.find(m => m.id === memberId);
+    if (!member) return;
+
+    const spouseName = prompt('Имя супруга/супруги:');
+    if (!spouseName) return;
+
+    const spouse: FamilyMember = {
+      id: Date.now().toString(),
+      name: spouseName,
+      birthDate: member.birthDate,
+      level: member.level,
+      parentIds: [],
+    };
+
+    const updatedMembers = members.map(m => {
+      if (m.id === memberId) {
+        return { ...m, spouseId: spouse.id };
+      }
+      return m;
+    });
+
+    setMembers([...updatedMembers, spouse]);
+    setHistory([...history, [...updatedMembers, spouse]]);
+    toast.success(`${spouseName} добавлен как супруг`);
   };
 
   const undoLastChange = () => {
@@ -132,38 +117,12 @@ export default function FamilyTreeBuilder() {
     return members.filter((m) => m.level === level);
   };
 
-  const renderConnections = (member: FamilyMember, memberIndex: number, levelMembers: FamilyMember[]) => {
-    if (!member.parentIds || member.parentIds.length === 0) return null;
-
-    return member.parentIds.map((parentId) => {
-      const parent = members.find((m) => m.id === parentId);
-      if (!parent) return null;
-
-      const parentLevelMembers = getLevelMembers(parent.level);
-      const parentIndex = parentLevelMembers.findIndex((m) => m.id === parentId);
-
-      return (
-        <line
-          key={`${parentId}-${member.id}`}
-          x1={`${parentIndex * 33.33 + 16.66}%`}
-          y1="0%"
-          x2={`${memberIndex * 33.33 + 16.66}%`}
-          y2="100%"
-          stroke="#8B5CF6"
-          strokeWidth="3"
-          opacity="0.4"
-          markerEnd="url(#arrowhead)"
-        />
-      );
-    });
-  };
-
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-3xl font-bold mb-2">Конструктор родословного дерева</h2>
-          <p className="text-gray-600">Добавляйте родственников и создавайте визуальную схему</p>
+          <p className="text-gray-600">Добавляйте родственников по поколениям</p>
         </div>
         <div className="flex space-x-2">
           <Button
@@ -189,116 +148,148 @@ export default function FamilyTreeBuilder() {
               <Icon name="UserPlus" size={20} className="mr-2 text-primary" />
               Добавить родственника
             </h3>
-            <div className="space-y-2">
-              {[
-                { label: 'Бабушки/Дедушки', value: 'grandparent', icon: 'User' },
-                { label: 'Родители', value: 'parent', icon: 'Users' },
-                { label: 'Братья/Сестры', value: 'sibling', icon: 'UserPlus' },
-                { label: 'Дети', value: 'child', icon: 'Baby' },
-              ].map((rel) => (
-                <Dialog
-                  key={rel.value}
-                  open={isAddDialogOpen && newMember.relation === rel.value}
-                  onOpenChange={(open) => {
-                    setIsAddDialogOpen(open);
-                    if (open) setNewMember({ relation: rel.value });
-                    if (!open) setIsAlive(true);
+            
+            <Dialog open={isAddDialogOpen} onOpenChange={(open) => {
+              setIsAddDialogOpen(open);
+              if (!open) {
+                setIsAlive(true);
+                setNewMember({});
+                setSelectedParent('');
+              }
+            }}>
+              <DialogTrigger asChild>
+                <Button
+                  variant="default"
+                  className="w-full rounded-xl bg-gradient-to-r from-primary to-secondary mb-4"
+                  onClick={() => {
+                    setNewMember({});
+                    setIsAddDialogOpen(true);
+                    setIsAlive(true);
                   }}
                 >
-                  <DialogTrigger asChild>
-                    <Button
-                      variant="outline"
-                      className="w-full justify-start rounded-xl"
-                      onClick={() => {
-                        setNewMember({ relation: rel.value });
-                        setIsAddDialogOpen(true);
-                        setIsAlive(true);
-                      }}
+                  <Icon name="Plus" size={18} className="mr-2" />
+                  Добавить члена семьи
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="rounded-2xl max-w-md">
+                <DialogHeader>
+                  <DialogTitle>Добавить члена семьи</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4">
+                  <div>
+                    <Label htmlFor="name">Имя и Фамилия *</Label>
+                    <Input
+                      id="name"
+                      placeholder="Иван Петров"
+                      value={newMember.name || ''}
+                      onChange={(e) => setNewMember({ ...newMember, name: e.target.value })}
+                      className="rounded-xl"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="level">Поколение *</Label>
+                    <Select
+                      value={newMember.level?.toString() || ''}
+                      onValueChange={(value) => setNewMember({ ...newMember, level: parseInt(value) })}
                     >
-                      <Icon name={rel.icon as any} size={18} className="mr-2" />
-                      {rel.label}
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent className="rounded-2xl">
-                    <DialogHeader>
-                      <DialogTitle>Добавить: {rel.label}</DialogTitle>
-                    </DialogHeader>
-                    <div className="space-y-4">
-                      <div>
-                        <Label htmlFor="name">Имя и Фамилия *</Label>
-                        <Input
-                          id="name"
-                          placeholder="Иван Петров"
-                          value={newMember.name || ''}
-                          onChange={(e) => setNewMember({ ...newMember, name: e.target.value })}
-                          className="rounded-xl"
-                        />
-                      </div>
-                      <div>
-                        <Label htmlFor="birthDate">Дата рождения *</Label>
-                        <Input
-                          id="birthDate"
-                          type="date"
-                          value={newMember.birthDate || ''}
-                          onChange={(e) => setNewMember({ ...newMember, birthDate: e.target.value })}
-                          className="rounded-xl"
-                        />
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <Checkbox
-                          id="isAlive"
-                          checked={isAlive}
-                          onCheckedChange={(checked) => setIsAlive(checked as boolean)}
-                        />
-                        <Label htmlFor="isAlive" className="cursor-pointer">
-                          Человек жив
-                        </Label>
-                      </div>
-                      {!isAlive && (
-                        <div>
-                          <Label htmlFor="deathDate">Дата смерти</Label>
-                          <Input
-                            id="deathDate"
-                            type="date"
-                            value={newMember.deathDate || ''}
-                            onChange={(e) => setNewMember({ ...newMember, deathDate: e.target.value })}
-                            className="rounded-xl"
-                          />
-                        </div>
-                      )}
-                      <div>
-                        <Label htmlFor="photo">Фотография (URL)</Label>
-                        <Input
-                          id="photo"
-                          placeholder="https://example.com/photo.jpg"
-                          value={newMember.photo || ''}
-                          onChange={(e) => setNewMember({ ...newMember, photo: e.target.value })}
-                          className="rounded-xl"
-                        />
-                      </div>
-                      <Button onClick={addMember} className="w-full rounded-xl">
-                        <Icon name="Plus" size={20} className="mr-2" />
-                        Добавить в дерево
-                      </Button>
+                      <SelectTrigger className="rounded-xl">
+                        <SelectValue placeholder="Выберите поколение" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="0">Прапрадедушки/Прапрабабушки</SelectItem>
+                        <SelectItem value="1">Прадедушки/Прабабушки</SelectItem>
+                        <SelectItem value="2">Дедушки/Бабушки</SelectItem>
+                        <SelectItem value="3">Родители</SelectItem>
+                        <SelectItem value="4">Вы и братья/сестры</SelectItem>
+                        <SelectItem value="5">Дети</SelectItem>
+                        <SelectItem value="6">Внуки</SelectItem>
+                        <SelectItem value="7">Правнуки</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {newMember.level !== undefined && newMember.level > 0 && (
+                    <div>
+                      <Label htmlFor="parent">Родитель (необязательно)</Label>
+                      <Select value={selectedParent} onValueChange={setSelectedParent}>
+                        <SelectTrigger className="rounded-xl">
+                          <SelectValue placeholder="Выберите родителя" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">Без родителя</SelectItem>
+                          {members
+                            .filter((m) => m.level === (newMember.level || 0) - 1)
+                            .map((m) => (
+                              <SelectItem key={m.id} value={m.id}>
+                                {m.name}
+                              </SelectItem>
+                            ))}
+                        </SelectContent>
+                      </Select>
                     </div>
-                  </DialogContent>
-                </Dialog>
-              ))}
+                  )}
+                  <div>
+                    <Label htmlFor="birthDate">Дата рождения *</Label>
+                    <Input
+                      id="birthDate"
+                      type="date"
+                      value={newMember.birthDate || ''}
+                      onChange={(e) => setNewMember({ ...newMember, birthDate: e.target.value })}
+                      className="rounded-xl"
+                    />
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="isAlive"
+                      checked={isAlive}
+                      onCheckedChange={(checked) => setIsAlive(checked as boolean)}
+                    />
+                    <Label htmlFor="isAlive" className="cursor-pointer">
+                      Человек жив
+                    </Label>
+                  </div>
+                  {!isAlive && (
+                    <div>
+                      <Label htmlFor="deathDate">Дата смерти</Label>
+                      <Input
+                        id="deathDate"
+                        type="date"
+                        value={newMember.deathDate || ''}
+                        onChange={(e) => setNewMember({ ...newMember, deathDate: e.target.value })}
+                        className="rounded-xl"
+                      />
+                    </div>
+                  )}
+                  <div>
+                    <Label htmlFor="photo">Фотография (URL)</Label>
+                    <Input
+                      id="photo"
+                      placeholder="https://example.com/photo.jpg"
+                      value={newMember.photo || ''}
+                      onChange={(e) => setNewMember({ ...newMember, photo: e.target.value })}
+                      className="rounded-xl"
+                    />
+                  </div>
+                  <Button onClick={addMember} className="w-full rounded-xl">
+                    <Icon name="Plus" size={20} className="mr-2" />
+                    Добавить в дерево
+                  </Button>
+                </div>
+              </DialogContent>
+            </Dialog>
+
+            <div className="space-y-2 text-sm text-gray-600">
+              <p className="font-medium">Подсказка:</p>
+              <ul className="space-y-1 list-disc list-inside">
+                <li>Выберите поколение для нового члена</li>
+                <li>Укажите родителя для связи</li>
+                <li>Без ограничений по количеству</li>
+              </ul>
             </div>
           </CardContent>
         </Card>
 
         <div className="md:col-span-3">
-          <Card
-            className="rounded-2xl border-2 min-h-[700px] overflow-auto"
-            style={{
-              backgroundImage: 'url(https://cdn.poehali.dev/files/6f1d5a9d-51f4-4283-badf-63c830b23d31.jpg)',
-              backgroundSize: 'cover',
-              backgroundPosition: 'center',
-              backgroundBlendMode: 'soft-light',
-              backgroundColor: 'rgba(255, 255, 255, 0.92)',
-            }}
-          >
+          <Card className="rounded-2xl border-2 min-h-[700px] overflow-auto bg-gradient-to-br from-purple-50 via-blue-50 to-pink-50">
             <CardContent className="p-8">
               <div className="flex items-center justify-between mb-8">
                 <h3 className="font-bold flex items-center text-lg">
@@ -306,7 +297,7 @@ export default function FamilyTreeBuilder() {
                   Визуализация дерева
                 </h3>
                 <span className="text-sm text-gray-600 bg-white/80 px-3 py-1 rounded-lg">
-                  Всего: {members.length} {members.length === 1 ? 'человек' : 'человек'}
+                  Всего: {members.length} человек
                 </span>
               </div>
 
@@ -317,124 +308,138 @@ export default function FamilyTreeBuilder() {
                   </div>
                   <h3 className="text-xl font-bold mb-2">Начните создавать дерево</h3>
                   <p className="text-gray-600 max-w-md">
-                    Используйте панель слева, чтобы добавить родственников. Начните с родителей или детей!
+                    Нажмите "Добавить члена семьи" слева и выберите поколение для нового родственника
                   </p>
                 </div>
               ) : (
-                <div className="relative space-y-20">
-                  {[0, 1, 2, 3].map((level, levelIdx, arr) => {
+                <div className="space-y-32 relative min-h-[600px]">
+                  {[0, 1, 2, 3, 4, 5, 6, 7].map((level) => {
                     const levelMembers = getLevelMembers(level);
                     if (levelMembers.length === 0) return null;
 
+                    const prevLevelMembers = level > 0 ? getLevelMembers(level - 1) : [];
+
                     return (
                       <div key={level} className="relative">
-                        <div className="text-center mb-6">
-                          <span className="inline-block bg-white/90 px-4 py-2 rounded-xl border-2 border-primary/20 font-bold text-sm uppercase tracking-wide text-gray-700 shadow-sm">
-                            {level === 0 && 'Бабушки и Дедушки'}
-                            {level === 1 && 'Родители'}
-                            {level === 2 && 'Вы и Братья/Сестры'}
-                            {level === 3 && 'Дети'}
+                        <div className="text-center mb-8">
+                          <span className="inline-block bg-white px-4 py-2 rounded-xl border-2 border-primary/30 font-bold text-xs uppercase tracking-wide text-gray-700 shadow-sm">
+                            {level === 0 && 'Прапрадеды'}
+                            {level === 1 && 'Прадеды'}
+                            {level === 2 && 'Дедушки и Бабушки'}
+                            {level === 3 && 'Родители'}
+                            {level === 4 && 'Вы и Братья/Сестры'}
+                            {level === 5 && 'Дети'}
+                            {level === 6 && 'Внуки'}
+                            {level === 7 && 'Правнуки'}
                           </span>
                         </div>
 
-                        <div className="relative">
-                          {levelIdx > 0 && (
-                            <svg
-                              className="absolute -top-16 left-0 w-full h-16 pointer-events-none"
-                              style={{ zIndex: 1 }}
-                            >
-                              <defs>
-                                <marker
-                                  id="arrowhead"
-                                  markerWidth="10"
-                                  markerHeight="10"
-                                  refX="9"
-                                  refY="3"
-                                  orient="auto"
-                                >
-                                  <polygon points="0 0, 10 3, 0 6" fill="#8B5CF6" opacity="0.5" />
-                                </marker>
-                              </defs>
-                              {levelMembers.map((member, memberIndex) =>
-                                renderConnections(member, memberIndex, levelMembers)
-                              )}
-                            </svg>
-                          )}
-
-                          <div
-                            className="grid gap-6 relative"
-                            style={{
-                              gridTemplateColumns: `repeat(${Math.max(levelMembers.length, 3)}, minmax(200px, 1fr))`,
-                              zIndex: 2,
-                            }}
+                        {level > 0 && prevLevelMembers.length > 0 && (
+                          <svg
+                            className="absolute -top-28 left-0 w-full h-28 pointer-events-none overflow-visible"
+                            style={{ zIndex: 0 }}
                           >
-                            {levelMembers.map((member) => {
-                              const birthYear = new Date(member.birthDate).getFullYear();
-                              const deathYear = member.deathDate
-                                ? new Date(member.deathDate).getFullYear()
-                                : null;
+                            {levelMembers.map((child, childIdx) => {
+                              if (!child.parentIds || child.parentIds.length === 0) return null;
 
-                              return (
-                                <div
-                                  key={member.id}
-                                  className="flex flex-col items-center relative animate-scale-in"
-                                >
-                                  <div
-                                    className="relative w-full max-w-[200px] h-[180px] rounded-2xl overflow-hidden shadow-lg hover:shadow-2xl transition-all duration-300 hover:-translate-y-2 cursor-pointer border-4 border-amber-200"
-                                    style={{
-                                      background:
-                                        'linear-gradient(135deg, rgba(245, 232, 199, 0.95) 0%, rgba(222, 184, 135, 0.95) 100%)',
-                                      backgroundImage: `url("data:image/svg+xml,%3Csvg width='100' height='100' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M10 10 Q 20 5, 30 10 T 50 10' stroke='%23CD853F' fill='none' opacity='0.2'/%3E%3C/svg%3E")`,
-                                    }}
-                                  >
-                                    <div className="absolute inset-0 flex flex-col items-center justify-center p-4 text-center">
-                                      <div className="w-14 h-14 rounded-full bg-gradient-to-br from-amber-600 to-amber-800 flex items-center justify-center mb-2 border-2 border-amber-300 shadow-md">
-                                        <span className="text-white font-bold text-lg">
-                                          {member.name
-                                            .split(' ')
-                                            .map((n) => n[0])
-                                            .join('')}
-                                        </span>
+                              return child.parentIds.map((parentId) => {
+                                const parent = members.find((m) => m.id === parentId);
+                                if (!parent || parent.level !== level - 1) return null;
+
+                                const parentIdx = prevLevelMembers.findIndex((m) => m.id === parentId);
+                                if (parentIdx === -1) return null;
+
+                                const childX = ((childIdx + 0.5) / levelMembers.length) * 100;
+                                const parentX = ((parentIdx + 0.5) / prevLevelMembers.length) * 100;
+
+                                const midY = 50;
+
+                                return (
+                                  <g key={`${parentId}-${child.id}`}>
+                                    <path
+                                      d={`M ${parentX}% 0 L ${parentX}% ${midY}% L ${childX}% ${midY}% L ${childX}% 100%`}
+                                      stroke="#8B5CF6"
+                                      strokeWidth="2.5"
+                                      fill="none"
+                                      opacity="0.5"
+                                    />
+                                    <circle
+                                      cx={`${childX}%`}
+                                      cy="100%"
+                                      r="4"
+                                      fill="#8B5CF6"
+                                      opacity="0.7"
+                                    />
+                                    <circle
+                                      cx={`${parentX}%`}
+                                      cy="0%"
+                                      r="4"
+                                      fill="#8B5CF6"
+                                      opacity="0.7"
+                                    />
+                                  </g>
+                                );
+                              });
+                            })}
+                          </svg>
+                        )}
+
+                        <div
+                          className="grid gap-6 relative"
+                          style={{
+                            gridTemplateColumns: `repeat(${Math.max(levelMembers.length, 1)}, minmax(180px, 1fr))`,
+                            zIndex: 1,
+                          }}
+                        >
+                          {levelMembers.map((member) => {
+                            const birthYear = new Date(member.birthDate).getFullYear();
+                            const deathYear = member.deathDate
+                              ? new Date(member.deathDate).getFullYear()
+                              : null;
+
+                            return (
+                              <div key={member.id} className="flex flex-col items-center">
+                                <Card className="w-full hover:shadow-xl transition-all duration-300 hover:-translate-y-1 rounded-xl border-2 bg-white">
+                                  <CardContent className="p-4">
+                                    <div className="text-center">
+                                      <div className="w-16 h-16 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center mx-auto mb-3 border-2 border-white shadow-md">
+                                        {member.photo ? (
+                                          <img
+                                            src={member.photo}
+                                            alt={member.name}
+                                            className="w-full h-full rounded-full object-cover"
+                                          />
+                                        ) : (
+                                          <span className="text-white font-bold text-lg">
+                                            {member.name
+                                              .split(' ')
+                                              .map((n) => n[0])
+                                              .join('')}
+                                          </span>
+                                        )}
                                       </div>
-                                      <h4 className="font-bold text-gray-800 text-sm leading-tight mb-1">
+                                      <h4 className="font-bold text-sm leading-tight mb-1 px-1">
                                         {member.name}
                                       </h4>
-                                      <p className="text-xs text-gray-700 font-medium">
+                                      <p className="text-xs text-gray-600 mb-2">
                                         {birthYear}
                                         {deathYear && ` - ${deathYear}`}
                                       </p>
-                                      <div className="mt-2">
-                                        <span className="inline-block text-[10px] px-2 py-0.5 bg-amber-700/20 text-amber-900 rounded-md font-medium">
-                                          {member.relation === 'parent' && 'Родитель'}
-                                          {member.relation === 'child' && 'Ребенок'}
-                                          {member.relation === 'sibling' && 'Брат/Сестра'}
-                                          {member.relation === 'grandparent' && 'Бабушка/Дедушка'}
-                                          {member.relation === 'Я' && 'Вы'}
-                                        </span>
-                                      </div>
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        className="h-7 px-2 text-xs w-full"
+                                        onClick={() => addSpouse(member.id)}
+                                      >
+                                        <Icon name="Heart" size={12} className="mr-1" />
+                                        Добавить супруга
+                                      </Button>
                                     </div>
-
-                                    <div
-                                      className="absolute top-2 left-2 w-6 h-6"
-                                      style={{
-                                        backgroundImage:
-                                          'url("data:image/svg+xml,%3Csvg viewBox=\'0 0 24 24\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cpath d=\'M12 2 L8 8 L2 9 L7 14 L6 20 L12 17 L18 20 L17 14 L22 9 L16 8 Z\' fill=\'%23CD853F\' opacity=\'0.3\'/%3E%3C/svg%3E")',
-                                        backgroundSize: 'contain',
-                                      }}
-                                    />
-                                    <div
-                                      className="absolute bottom-2 right-2 w-6 h-6"
-                                      style={{
-                                        backgroundImage:
-                                          'url("data:image/svg+xml,%3Csvg viewBox=\'0 0 24 24\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cpath d=\'M12 2 L8 8 L2 9 L7 14 L6 20 L12 17 L18 20 L17 14 L22 9 L16 8 Z\' fill=\'%23CD853F\' opacity=\'0.3\'/%3E%3C/svg%3E")',
-                                        backgroundSize: 'contain',
-                                      }}
-                                    />
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
+                                  </CardContent>
+                                </Card>
+                              </div>
+                            );
+                          })}
                         </div>
                       </div>
                     );
@@ -446,17 +451,16 @@ export default function FamilyTreeBuilder() {
         </div>
       </div>
 
-      <Card className="rounded-2xl border-2 bg-gradient-to-r from-amber-50 to-orange-50">
+      <Card className="rounded-2xl border-2 bg-gradient-to-r from-primary/5 to-secondary/5">
         <CardContent className="p-6">
           <div className="flex items-start space-x-4">
-            <div className="w-12 h-12 rounded-xl bg-amber-100 flex items-center justify-center flex-shrink-0">
-              <Icon name="Info" size={24} className="text-amber-600" />
+            <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
+              <Icon name="Info" size={24} className="text-primary" />
             </div>
             <div>
-              <h3 className="font-bold mb-1">Винтажный стиль дерева</h3>
+              <h3 className="font-bold mb-1">Как пользоваться</h3>
               <p className="text-sm text-gray-600">
-                Карточки оформлены в стиле старинных свитков с декоративными элементами. Линии показывают
-                родственные связи между поколениями. Нажмите "Экспорт" для печати!
+                Выберите поколение (от прапрадедов до правнуков) и укажите родителя для автоматического создания связей. Линии показывают родственные связи между поколениями. Можно добавлять неограниченное количество родственников!
               </p>
             </div>
           </div>
